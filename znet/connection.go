@@ -104,7 +104,7 @@ func (c *Connection) StartReader() {
 				c.MsgHandler.SendMsgToTaskQueue(&req)
 			} else {
 				//从绑定好的消息和对应的处理方法中执行对应的Handle方法
-				go c.MsgHandler.DoMsgHandler(&req)
+				go c.MsgHandler.DoMsgHandler(&req, message)
 			}
 		}
 
