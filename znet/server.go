@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/xtaci/kcp-go"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"liereal.com/zinx-kcp/utils"
 	"liereal.com/zinx-kcp/ziface"
 	"net"
@@ -51,7 +52,7 @@ func (s *Server) GetConnMgr() ziface.IConnManager {
 	return s.ConnMgr
 }
 
-func (s *Server) AddRouter(msgId uint32, router ziface.IRouter) {
+func (s *Server) AddRouter(msgId protoreflect.Name, router ziface.IRouter) {
 	s.msgHandler.AddRouter(msgId, router)
 }
 
@@ -73,6 +74,7 @@ func (s *Server) Start() {
 		utils.ConfigInstance.MaxPacketSize)
 
 	go func() {
+
 		//监听服务器地址
 		listen, err := kcp.Listen(s.Host.String())
 		if err != nil {
@@ -90,7 +92,6 @@ func (s *Server) Start() {
 		//启动server网络连接业务
 		for {
 			s.msgHandler.StartWorkerPool()
-
 			conn, err := listen.Accept()
 			if err != nil {
 				fmt.Println("Accept err ", err)
