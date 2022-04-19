@@ -2,25 +2,26 @@ package znet
 
 import (
 	"fmt"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 	"liereal.com/zinx-kcp/utils"
 	"liereal.com/zinx-kcp/ziface"
+	"strconv"
 )
 
 type MsgHandle struct {
-	Apis           map[protoreflect.Name]ziface.IRouter //存放每个MsgId 所对应的处理方法的map属性
-	WorkerPoolSize uint32                               //业务工作Worker池的数量
-	TaskQueue      []chan ziface.IRequest               //Worker负责取任务的消息队列
+	Apis           map[uint32]ziface.IRouter //存放每个MsgId 所对应的处理方法的map属性
+	WorkerPoolSize uint32                    //业务工作Worker池的数量
+	TaskQueue      []chan ziface.IRequest    //Worker负责取任务的消息队列
 
 }
 
 func (mh *MsgHandle) SendMsgToTaskQueue(request ziface.IRequest) {
 	//根据ConnID来分配当前的连接应该由哪个worker负责处理
 	//轮询的平均分配法则
+
 	//得到需要处理此条连接的workerID
 	workerID := request.GetConnection().GetConnID() % mh.WorkerPoolSize
-	fmt.Println("Add ConnID=", request.GetConnection().GetConnID(), "to workerID=", workerID)
+	fmt.Println("Add ConnID=", request.GetConnection().GetConnID(), " request msgID=", request.GetMsgID(), "to workerID=", workerID)
+	//将请求消息发送给任务队列
 	mh.TaskQueue[workerID] <- request
 }
 
@@ -32,14 +33,7 @@ func (mh *MsgHandle) StartOneWorker(workerID int, taskQueue chan ziface.IRequest
 		select {
 		//有消息则取出队列的Request，并执行绑定的业务方法
 		case request := <-taskQueue:
-			message := request.GetData()
-			if message.GetRequest() != nil {
-				mh.DispatchRequset(request, message.GetRequest())
-			}
-
-			if message.GetResponse() != nil {
-				mh.DispatchResponse(request, message.GetResponse())
-			}
+			mh.DoMsgHandler(request)
 		}
 	}
 }
@@ -58,7 +52,7 @@ func (mh *MsgHandle) StartWorkerPool() {
 
 func NewMsgHandle() *MsgHandle {
 	return &MsgHandle{
-		Apis:           make(map[protoreflect.Name]ziface.IRouter),
+		Apis:           make(map[uint32]ziface.IRouter),
 		WorkerPoolSize: utils.ConfigInstance.WorkerPoolSize,
 		//一个worker对应一个queue
 		TaskQueue: make([]chan ziface.IRequest, utils.ConfigInstance.WorkerPoolSize),
@@ -66,25 +60,24 @@ func NewMsgHandle() *MsgHandle {
 }
 
 //马上以非阻塞方式处理消息
-func (mh *MsgHandle) DoMsgHandler(request ziface.IRequest, message proto.Message) {
-	name := message.ProtoReflect().Descriptor().Name()
-	handler, ok := mh.Apis[name]
+func (mh *MsgHandle) DoMsgHandler(request ziface.IRequest) {
+	handler, ok := mh.Apis[request.GetMsgID()]
 	if !ok {
-		fmt.Println("api msgId = ", name, " is not FOUND!")
+		fmt.Println("api msgId = ", request.GetMsgID(), " is not FOUND!")
 		return
 	}
 
 	//执行对应处理方法
-	handler.PreHandle(request, message)
-	handler.Handle(request, message)
-	handler.PostHandle(request, message)
+	handler.PreHandle(request)
+	handler.Handle(request)
+	handler.PostHandle(request)
 }
 
 //为消息添加具体的处理逻辑
-func (mh *MsgHandle) AddRouter(msgId protoreflect.Name, router ziface.IRouter) {
+func (mh *MsgHandle) AddRouter(msgId uint32, router ziface.IRouter) {
 	//1 判断当前msg绑定的API处理方法是否已经存在
 	if _, ok := mh.Apis[msgId]; ok {
-		panic("repeated api , msgId = " + msgId)
+		panic("repeated api , msgId = " + strconv.Itoa(int(msgId)))
 	}
 	//2 添加msg与api的绑定关系
 	mh.Apis[msgId] = router
